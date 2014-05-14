@@ -1,0 +1,129 @@
+<?php
+class APIHTTPS {
+	var $page = '';
+	var $header = 1;
+	var $uagent = '';
+	var $iplist = array();
+	
+	function getPage($url, $cookies = '', $method = 'get', $postdata = null, $header = 1, $uagent = '', $iplist = array()) {
+		$this->header = $header;
+		$this->uagent = $uagent;
+		$this->iplist = $iplist;
+
+    $ipc = '';
+    if (isset($iplist['next'])) {
+      $ips = unserialize(trim(file_get_contents('./list.ips')));
+      foreach ($ips as $k => $v) {
+	      if (time()-$v > 7200) {
+		      $ipc = $k;
+		      break;
+	      }
+      }
+    }
+
+//echo '<!-- getPage '.$url.' //-->';
+		$ch = curl_init($url);
+		if (!empty($ipc)) curl_setopt($ch, CURLOPT_INTERFACE, $ipc);
+		
+		curl_setopt($ch, CURLOPT_HEADER, $header);
+		if (!empty($uagent)) curl_setopt($ch, CURLOPT_USERAGENT, $uagent);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+		curl_setopt($ch, CURLOPT_COOKIE, $cookies);
+		if ($method == 'post') {
+			curl_setopt($ch, CURLOPT_POST, 1);
+			curl_setopt($ch, CURLOPT_POSTFIELDS, $postdata);
+		}
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0); // выкинем проверку сертификатов
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+		
+		$this->page = curl_exec($ch);
+//print '+'.$this->page;
+		if (curl_errno($ch) != 0) {
+			die('cURL Error ('.curl_errno($ch).'): '.curl_error($ch));
+			return false;
+		}
+		curl_close($ch);
+		
+		if (!empty($ipc) && preg_match($iplist['next'], $this->page)) {
+			$ips[$ipc] = time();
+			file_put_contents('./list.ips', serialize($ips));
+			return false;
+		}
+		
+		return true;
+	}
+	
+	function extractCookies() {
+		$cookies = array();
+		
+		if (preg_match_all('#^Set-Cookie: ([^=]+)=(.*)(;|\s)#mU', $this->page, $matches)) {
+			foreach ($matches[1] as $key => $value) {
+				$cookies[$value] = $matches[2][$key];
+			}
+		}
+		
+		return $cookies;
+	}
+	
+	function extractLocation() {
+		if (preg_match('#^Location: (.*)$#mU', $this->page, $matches)) {
+			return trim($matches[1]);
+		}
+		return false;
+	}
+	function autosetLocation(&$globalCookies) {
+	    $url = '';
+	    while (($url = $this->extractLocation()) !== false) { // прыгаем по всем Location куда нас отправляют)
+		$cookies = $this->extractCookies();
+		foreach ($cookies as $key => $value) { // добавляем все полученные куки в общее "хранилище"
+			$globalCookies[$key] = $value;
+		}
+
+		if (substr($url, 0, 4) != 'http') { // относительный путь в Location
+			$urlparts = parse_url($prevURL);
+			$url = $urlparts['scheme'].'://'.$urlparts['host'].$url;
+		}
+
+		$this->getPage($url, $this->makeCookieString($globalCookies), 'get', null, $this->header, $this->uagent);
+//echo $this->page;
+	    }
+	    return $url;
+	}
+
+	function extractRefresh() {
+		if (preg_match('#^Refresh: (\d);(\s)?URL=(.*)$#mU', $this->page, $matches)) {
+			return trim($matches[3]);
+//print_r($matches);
+		}
+		return false;
+	}
+	
+	function makeCookieString($cookiesArray = array()) {
+		$string = '';
+		
+		foreach ($cookiesArray as $key => $value) {
+			$string .= '; '.$key.'='.$value;
+		}
+		
+		return substr($string, 2);
+	}
+	
+	function makePostString($postdataArray = array()) {
+		$string = '';
+		
+		if (count($postdataArray) > 0) foreach ($postdataArray as $key => $value) {
+			if ($key != '') $string .= '&'.urlencode($key).'='.urlencode($value);
+		}
+		
+		return substr($string, 1);
+	}
+	
+	function selectCookies(&$cookiesArray, $neededValues = array()) {
+		foreach ($cookiesArray as $key => $value) {
+			if (!in_array($key, $neededValues)) unset($cookiesArray[$key]);
+		}
+		
+		return true;
+	}
+}
+?>
