@@ -10,16 +10,16 @@ class APIHTTPS {
 		$this->uagent = $uagent;
 		$this->iplist = $iplist;
 
-    $ipc = '';
-    if (isset($iplist['next'])) {
-      $ips = unserialize(trim(file_get_contents('./list.ips')));
-      foreach ($ips as $k => $v) {
-	      if (time()-$v > 7200) {
-		      $ipc = $k;
-		      break;
-	      }
-      }
-    }
+		$ipc = '';
+		if (isset($iplist['next'])) {
+			$ips = unserialize(trim(file_get_contents('./list.ips')));
+			foreach ($ips as $k => $v) {
+				if (time()-$v > 7200) {
+					$ipc = $k;
+					break;
+				}
+			}
+		}
 
 //echo '<!-- getPage '.$url.' //-->';
 		$ch = curl_init($url);
